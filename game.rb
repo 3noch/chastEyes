@@ -1,18 +1,17 @@
-
 require 'rubygems'
 require 'rubygame'
 
 class Game
     def initialize
         @screen = Rubygame::Screen.new [1024, 768], 0, [Rubygame::HWSURFACE, Rubygame::DOUBLEBUF]
-        @screen.title = 'CatalEyes'
+        @screen.title = 'chastEyes'
 
         @queue = Rubygame::EventQueue.new
         @clock = Rubygame::Clock.new
         @clock.target_framerate = 60
 
         @sprites = []
-        @sprites.push Player.new 20, @screen.height/2
+        @sprites.push Player.new Point.new(20, @screen.height/2)
     end
 
     def run!
@@ -52,6 +51,60 @@ class Game
 end
 
 
+class Point
+    attr_accessor :x, :y
+
+    def initialize x, y
+        @x = x
+        @y = y
+    end
+
+    def +(point)
+        Point.new @x + point.x, @y + point.y
+    end
+
+    def -(point)
+        Point.new @x - point.x, @y - point.y
+    end
+
+    def radians
+        Math.atan2(point.x, point.y)
+    end
+
+    def degrees
+        radians * 180 / Math::PI
+    end
+end
+
+
+class BaseVector
+    attr_accessor :point
+
+    def magnitude
+    end
+
+    def magnitude=(mag)
+    end
+end
+
+class PointVector < BaseVector
+    def initialize point
+        @point
+    end
+
+    def magnitude
+        Math.sqrt( (p2.x - p1.x)^2 + (p2.y - p1.y)^2 )
+    end
+end
+
+
+class DeltaVector < BaseVector
+    def magnitude
+        Math.sqrt( p2.x^2 + p2.y^2 )
+    end
+end
+
+
 def sign number
     return 1 if number >= 0
     return -1 if number < 0
@@ -59,11 +112,10 @@ end
 
 
 class Sprite
-    attr_accessor :x, :y, :width, :height, :surface
+    attr_accessor :point, :width, :height, :surface
 
-    def initialize x, y, surface
-        @x = x
-        @y = y
+    def initialize point, surface
+        @point = point
         @surface = surface
         @width = surface.width
         @height = surface.height
@@ -73,42 +125,35 @@ class Sprite
     end
 
     def draw screen
-        @surface.blit screen, [@x, @y]
+        @surface.blit screen, [@point.x, @point.y]
     end
 
     def handle_event event
     end
 end
 
-
 class Player < Sprite
-    def initialize x, y
-        super x, y, Rubygame::Surface.load('you.png')
-        @vx     = 0.0 # pixels/second
-        @vy     = 0.0 # pixels/second
-        @vvx    = 0.0 # pixels/second/second
-        @vvy    = 0.0 # pixels/second/second
-        @vdecay = 300.0 # pixels/second/second
-        @accel  = 300.0 # pixels/second/second
+    def initialize point
+        super point, Rubygame::Surface.load('you.png')
+        @vx = 0.0
+        @vy = 0.0
+        @drag   = 500.0 # pixels/second/second
+        @accel  = 1000.0 # pixels/second/second
         @moving = {:left => false, :right => false, :up => false, :down => false}
     end
 
     def update delta_time
         if moving?
-            @vvx = @vvx - @accel * delta_time if @moving[:left]
-            @vvx = @vvx + @accel * delta_time if @moving[:right]
-            @vvy = @vvy - @accel * delta_time if @moving[:up]
-            @vvy = @vvy + @accel * delta_time if @moving[:down]
+            @vx = @vx - @accel * delta_time if @moving[:left]
+            @vx = @vx + @accel * delta_time if @moving[:right]
+            @vy = @vy - @accel * delta_time if @moving[:up]
+            @vy = @vy + @accel * delta_time if @moving[:down]
         elsif
-            @vvx = @vvx + (@vdecay * sign(@vvx) * -1) * delta_time
-            @vvy = @vvy + (@vdecay * sign(@vvy) * -1) * delta_time
+            @vx = @vx + (@drag * sign(@vx) * -1) * delta_time
+            @vy = @vy + (@drag * sign(@vy) * -1) * delta_time
         end
 
-        @vx = @vx + @vvx * delta_time
-        @vy = @vy + @vvy * delta_time
-
-        @x = @x + @vx * delta_time
-        @y = @y + @vy * delta_time
+        @point = @point + Point.new(@vx * delta_time, @vy * delta_time)
     end
 
     def moving?
