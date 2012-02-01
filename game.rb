@@ -1,17 +1,21 @@
 require 'rubygems'
 require 'rubygame'
 
+SCREEN_WIDTH  = 1024
+SCREEN_HEIGHT = 768
+
 class Game
     def initialize
-        @screen = Rubygame::Screen.new [1024, 768], 0, [Rubygame::HWSURFACE, Rubygame::DOUBLEBUF]
+        @screen = Rubygame::Screen.new [SCREEN_WIDTH, SCREEN_HEIGHT], 0, [Rubygame::HWSURFACE, Rubygame::DOUBLEBUF]
         @screen.title = 'chastEyes'
 
         @queue = Rubygame::EventQueue.new
         @clock = Rubygame::Clock.new
         @clock.target_framerate = 60
 
-        @sprites = []
-        @sprites.push Player.new Point.new(20, @screen.height/2)
+        @things = []
+        @things.push Player.new Point.new(20, @screen.height/2)
+        @things.push Generator.new Bomb, 10
     end
 
     def run!
@@ -35,18 +39,50 @@ class Game
                     end
             end
 
-            @sprites.each {|sprite| sprite.handle_event event}
+            @things.each {|thing| thing.handle_event event}
         end
     end
 
     def update delta_time
-        @sprites.each {|sprite| sprite.update delta_time}
+        @things.each {|thing| thing.update delta_time}
     end
 
     def draw screen
         screen.fill [0,0,0]
-        @sprites.each {|sprite| sprite.draw @screen}
+        @things.each {|thing| thing.draw @screen}
         screen.flip
+    end
+end
+
+
+class Angle
+    attr_accessor :radians
+
+    DEGREES_PER_RADIAN = 180 / Math::PI
+    RADIANS_PER_DEGREE = Math::PI / 180
+
+    def initialize radians
+        @radians = radians
+    end
+
+    def radians
+        @radians
+    end
+
+    def degrees
+        @radians * DEGREES_PER_RADIAN
+    end
+
+    def degrees= deg
+        @radians = deg * RADIANS_PER_DEGREE
+    end
+
+    def opposite
+        Angle.new @radians + Math::PI
+    end
+
+    def point
+        Point.new Math.cos(@radians), Math.sin(@radians)
     end
 end
 
@@ -67,40 +103,24 @@ class Point
         Point.new @x - point.x, @y - point.y
     end
 
-    def radians
-        Math.atan2(point.x, point.y)
+    def *(factor)
+        Point.new @x * factor, @y * factor
     end
 
-    def degrees
-        radians * 180 / Math::PI
-    end
-end
-
-
-class BaseVector
-    attr_accessor :point
-
-    def magnitude
-    end
-
-    def magnitude=(mag)
+    def angle
+        Angle.new Math.atan2(point.x, point.y)
     end
 end
 
-class PointVector < BaseVector
+
+class Vector
     def initialize point
-        @point
+        @magnitude = Math.sqrt(point.x^2 + point.y^2)
+        @angle = point.angle
     end
 
-    def magnitude
-        Math.sqrt( (p2.x - p1.x)^2 + (p2.y - p1.y)^2 )
-    end
-end
-
-
-class DeltaVector < BaseVector
-    def magnitude
-        Math.sqrt( p2.x^2 + p2.y^2 )
+    def opposite
+        Vector.new @angle.opposite.point * @magnitude
     end
 end
 
@@ -111,17 +131,32 @@ def sign number
 end
 
 
-class Sprite
+class Thing
+    def update delta_time
+    end
+
+    def draw screen
+    end
+
+    def handle_event event
+    end
+end
+
+
+class Sprite < Thing
     attr_accessor :point, :width, :height, :surface
 
     def initialize point, surface
         @point = point
+        @vx = 0.0
+        @vy = 0.0
         @surface = surface
         @width = surface.width
         @height = surface.height
     end
 
     def update delta_time
+        @point = @point + Point.new(@vx * delta_time, @vy * delta_time)
     end
 
     def draw screen
@@ -132,12 +167,46 @@ class Sprite
     end
 end
 
+
+class Generator < Thing
+    def initialize sprite, quota
+        @sprite = sprite
+        @quota = quota
+        @sprites = []
+    end
+
+    def update delta_time
+        @sprites.each {|sprite| @sprites.delete(sprite) if sprite.point.x < -sprite.width}
+        meet_quota
+        @sprites.each {|sprite| sprite.update delta_time}
+    end
+
+    def meet_quota
+        (@quota - @sprites.size).times do
+            point = Point.new SCREEN_WIDTH + 1, Random.rand(SCREEN_HEIGHT)
+            @sprites.push @sprite.new point, -Random.rand(200.0..600.0), 0
+        end
+    end
+
+    def draw screen
+        @sprites.each {|sprite| sprite.draw screen}
+    end
+end
+
+
+class Bomb < Sprite
+    def initialize point, vx, vy
+        super point, Rubygame::Surface.load('bomb.png')
+        @vx = vx
+        @vy = vy
+    end
+end
+
+
 class Player < Sprite
     def initialize point
         super point, Rubygame::Surface.load('you.png')
-        @vx = 0.0
-        @vy = 0.0
-        @drag   = 500.0 # pixels/second/second
+        @drag   = 700.0 # pixels/second/second
         @accel  = 1000.0 # pixels/second/second
         @moving = {:left => false, :right => false, :up => false, :down => false}
     end
@@ -149,11 +218,20 @@ class Player < Sprite
             @vy = @vy - @accel * delta_time if @moving[:up]
             @vy = @vy + @accel * delta_time if @moving[:down]
         elsif
-            @vx = @vx + (@drag * sign(@vx) * -1) * delta_time
-            @vy = @vy + (@drag * sign(@vy) * -1) * delta_time
+            @vx = apply_drag(@vx, delta_time)
+            @vy = apply_drag(@vy, delta_time)
         end
 
-        @point = @point + Point.new(@vx * delta_time, @vy * delta_time)
+        super delta_time
+    end
+
+    def apply_drag velocity, delta_time
+        new_velocity = velocity + (@drag * sign(velocity) * -1) * delta_time
+        if sign(velocity) == sign(new_velocity)
+            return new_velocity
+        else
+            return 0
+        end
     end
 
     def moving?
