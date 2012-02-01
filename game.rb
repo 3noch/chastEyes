@@ -4,6 +4,13 @@ require 'rubygame'
 SCREEN_WIDTH  = 1024
 SCREEN_HEIGHT = 768
 
+
+def sign number
+    return 1 if number >= 0
+    return -1 if number < 0
+end
+
+
 class Game
     def initialize
         @screen = Rubygame::Screen.new [SCREEN_WIDTH, SCREEN_HEIGHT], 0, [Rubygame::HWSURFACE, Rubygame::DOUBLEBUF]
@@ -13,9 +20,11 @@ class Game
         @clock = Rubygame::Clock.new
         @clock.target_framerate = 60
 
-        @things = []
-        @things.push Player.new Point.new(20, @screen.height/2)
-        @things.push Generator.new Bomb, 10
+        @you = Player.new Point.new(20, @screen.height/2)
+        @enemies = Generator.new Bomb, 10
+
+        @game_over = GameOver.new
+        @game_lost = false
     end
 
     def run!
@@ -39,53 +48,32 @@ class Game
                     end
             end
 
-            @things.each {|thing| thing.handle_event event}
+            @you.handle_event event
+            @enemies.handle_event event
         end
     end
 
     def update delta_time
-        @things.each {|thing| thing.update delta_time}
+        return if @game_lost
+        @you.update delta_time
+        @enemies.update delta_time
+
+        @game_lost = true if @enemies.collide? @you
     end
 
     def draw screen
         screen.fill [0,0,0]
-        @things.each {|thing| thing.draw @screen}
+
+        if @game_lost
+            @game_over.draw screen
+        else
+            @enemies.draw screen
+            @you.draw screen
+        end
+
         screen.flip
     end
 end
-
-
-class Angle
-    attr_accessor :radians
-
-    DEGREES_PER_RADIAN = 180 / Math::PI
-    RADIANS_PER_DEGREE = Math::PI / 180
-
-    def initialize radians
-        @radians = radians
-    end
-
-    def radians
-        @radians
-    end
-
-    def degrees
-        @radians * DEGREES_PER_RADIAN
-    end
-
-    def degrees= deg
-        @radians = deg * RADIANS_PER_DEGREE
-    end
-
-    def opposite
-        Angle.new @radians + Math::PI
-    end
-
-    def point
-        Point.new Math.cos(@radians), Math.sin(@radians)
-    end
-end
-
 
 class Point
     attr_accessor :x, :y
@@ -98,36 +86,6 @@ class Point
     def +(point)
         Point.new @x + point.x, @y + point.y
     end
-
-    def -(point)
-        Point.new @x - point.x, @y - point.y
-    end
-
-    def *(factor)
-        Point.new @x * factor, @y * factor
-    end
-
-    def angle
-        Angle.new Math.atan2(point.x, point.y)
-    end
-end
-
-
-class Vector
-    def initialize point
-        @magnitude = Math.sqrt(point.x^2 + point.y^2)
-        @angle = point.angle
-    end
-
-    def opposite
-        Vector.new @angle.opposite.point * @magnitude
-    end
-end
-
-
-def sign number
-    return 1 if number >= 0
-    return -1 if number < 0
 end
 
 
@@ -155,6 +113,22 @@ class Sprite < Thing
         @height = surface.height
     end
 
+    def left
+        @point.x
+    end
+
+    def right
+        @point.x + @width
+    end
+
+    def top
+        @point.y
+    end
+
+    def bottom
+        @point.y + @height
+    end
+
     def update delta_time
         @point = @point + Point.new(@vx * delta_time, @vy * delta_time)
     end
@@ -163,7 +137,12 @@ class Sprite < Thing
         @surface.blit screen, [@point.x, @point.y]
     end
 
-    def handle_event event
+    def collide? sprite
+        return false if bottom < sprite.top
+        return false if top > sprite.bottom
+        return false if right < sprite.left
+        return false if left > sprite.right
+        return true
     end
 end
 
@@ -190,6 +169,16 @@ class Generator < Thing
 
     def draw screen
         @sprites.each {|sprite| sprite.draw screen}
+    end
+
+    def collide?(sprite)
+        i = @sprites.size - 1
+        while i >= 0
+            return true if @sprites[i].collide?(sprite)
+            i = i - 1
+        end
+
+        false
     end
 end
 
@@ -263,6 +252,16 @@ class Player < Sprite
         end
     end
 end
+
+
+class GameOver < Sprite
+    def initialize
+        surface = Rubygame::Surface.load('killer.bmp')
+        point = Point.new SCREEN_WIDTH/2 - surface.width/2, SCREEN_HEIGHT/2 - surface.height/2
+        super point, surface
+    end
+end
+
 
 g = Game.new
 g.run!
